@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Informed Consent</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card">
+      <div class="progress-bar"><% for(let i=1;i<=totalPhases;i++){%><div class="step <%=i<phase?'done':i===phase?'active':''%>"></div><%}%></div>
+      <h1>Informed Consent</h1>
+      <div class="consent-text">
+        <h4>Study Title</h4>
+        <p>AI Tool Experience and Decision-Making Styles</p>
+        <h4>Purpose</h4>
+        <p>This study explores how different experiences with AI tools may influence cognitive processing and everyday decision preferences.</p>
+        <h4>Procedure</h4>
+        <p>You will complete a task involving an AI tool, participate in a word completion exercise, and then answer questions about your current state and daily life preferences. The entire process takes approximately 15–20 minutes.</p>
+        <h4>Your Rights</h4>
+        <ul>
+          <li>Participation is entirely voluntary. You may withdraw at any time without giving a reason.</li>
+          <li>All data is processed anonymously. No personally identifiable information is collected beyond your Prolific ID.</li>
+          <li>Data will be used for academic research purposes only.</li>
+        </ul>
+        <h4>Compensation</h4>
+        <p>You will receive your base Prolific payment for completing the study, with the opportunity to earn an additional bonus of up to &pound;0.45.</p>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="consentCheck" onchange="document.getElementById('consentBtn').disabled=!this.checked">
+        <label for="consentCheck">I have read and understood the above information and agree to participate in this study.</label>
+      </div>
+      <button class="btn btn-primary btn-full" id="consentBtn" disabled onclick="submitConsent()">Continue</button>
+    </div>
+  </div>
+  <script>
+    function submitConsent(){
+      fetch('/api/consent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:'<%= pid %>'})})
+      .then(r=>r.json()).then(d=>{if(d.next)window.location.href=d.next;});
+    }
+  </script>
+</body>
+</html>

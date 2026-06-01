@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card card-wide">
+      <h1>📊 Experiment Dashboard</h1>
+      <div class="admin-grid" id="statsGrid">
+        <div class="stat-card"><div class="number" id="statTotal"><%= stats.total %></div><div class="label">Total Participants</div></div>
+        <div class="stat-card"><div class="number" id="statDelegation"><%= stats.delegation %></div><div class="label">Delegation Group</div></div>
+        <div class="stat-card"><div class="number" id="statEvaluation"><%= stats.evaluation %></div><div class="label">Evaluation Group</div></div>
+        <div class="stat-card"><div class="number" id="statCompleted"><%= stats.completed %></div><div class="label">Completed</div></div>
+      </div>
+
+      <div class="divider"></div>
+      <h2>Export Data</h2>
+      <p class="subtitle">Download each table as CSV or JSON.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;">
+        <a class="btn btn-outline" href="/api/export/participants?pw=<%= password %>&format=csv">participants.csv</a>
+        <a class="btn btn-outline" href="/api/export/task_responses?pw=<%= password %>&format=csv">task_responses.csv</a>
+        <a class="btn btn-outline" href="/api/export/wfc_responses?pw=<%= password %>&format=csv">wfc_responses.csv</a>
+        <a class="btn btn-outline" href="/api/export/scale_responses?pw=<%= password %>&format=csv">scale_responses.csv</a>
+        <a class="btn btn-outline" href="/api/export/scenario_responses?pw=<%= password %>&format=csv">scenario_responses.csv</a>
+        <a class="btn btn-outline" href="/api/export/experiment_events?pw=<%= password %>&format=csv">events.csv</a>
+      </div>
+
+      <div class="divider"></div>
+      <h2>Participants</h2>
+      <button class="btn btn-outline mb-16" onclick="loadData()">Refresh Data</button>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="participantTable">
+          <thead><tr><th>Prolific ID</th><th>Condition</th><th>Phase</th><th>Started</th><th>Completed</th><th>Debrief</th></tr></thead>
+          <tbody id="ptBody"><tr><td colspan="6" class="text-muted">Click "Refresh Data" to load</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script>
+    var pw = '<%= password %>';
+    function loadData() {
+      fetch('/api/admin-data?pw='+pw).then(function(r){return r.json();}).then(function(d){
+        // Update stats
+        var parts = d.participants || [];
+        document.getElementById('statTotal').textContent = parts.length;
+        document.getElementById('statDelegation').textContent = parts.filter(function(p){return p.condition==='delegation';}).length;
+        document.getElementById('statEvaluation').textContent = parts.filter(function(p){return p.condition==='evaluation';}).length;
+        document.getElementById('statCompleted').textContent = parts.filter(function(p){return p.completed_at;}).length;
+        // Update table
+        var html = '';
+        parts.forEach(function(p){
+          html += '<tr>';
+          html += '<td>'+p.prolific_id+'</td>';
+          html += '<td><span style="color:'+(p.condition==='delegation'?'#4A7BF7':'#27ae60')+'">'+p.condition+'</span></td>';
+          html += '<td>'+( p.current_phase||'')+'</td>';
+          html += '<td>'+(p.started_at?new Date(p.started_at).toLocaleString():'')+'</td>';
+          html += '<td>'+(p.completed_at?new Date(p.completed_at).toLocaleString():'—')+'</td>';
+          html += '<td>'+(p.debrief_consent||'—')+'</td>';
+          html += '</tr>';
+        });
+        document.getElementById('ptBody').innerHTML = html || '<tr><td colspan="6">No participants yet</td></tr>';
+      });
+    }
+    loadData();
+  </script>
+</body>
+</html>

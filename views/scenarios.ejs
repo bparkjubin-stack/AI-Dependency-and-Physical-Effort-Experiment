@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lifestyle Preferences</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card">
+      <div class="progress-bar"><% for(let i=1;i<=totalPhases;i++){%><div class="step <%=i<phase?'done':i===phase?'active':''%>"></div><%}%></div>
+      <h1>Lifestyle Preferences</h1>
+      <p class="subtitle">Each scenario describes a common daily situation. Choose the option you'd be more inclined toward. There are no right or wrong answers — just go with your gut feeling.</p>
+      <div id="scenarioArea"></div>
+    </div>
+  </div>
+  <script>
+    var pid = '<%= pid %>';
+    var items = <%- items %>;
+    var current = 0;
+    var responses = [];
+
+    function renderScenario() {
+      if(current >= items.length) { finishScenarios(); return; }
+      var s = items[current];
+      var html = '<div class="scenario-counter">'+(current+1)+' / '+items.length+'</div>';
+      html += '<p style="color:#333;font-size:0.95rem;font-weight:500;margin-bottom:16px;">'+s.text+'</p>';
+      html += '<div class="choice-group">';
+      html += '<div class="choice-option" onclick="selectChoice(this,\'A\')"><div class="choice-dot"></div><span class="choice-text"><strong>A.</strong> '+s.optA+'</span></div>';
+      html += '<div class="choice-option" onclick="selectChoice(this,\'B\')"><div class="choice-dot"></div><span class="choice-text"><strong>B.</strong> '+s.optB+'</span></div>';
+      html += '</div>';
+      html += '<button class="btn btn-primary btn-full mt-16" id="nextBtn" disabled onclick="submitChoice()">Next</button>';
+      document.getElementById('scenarioArea').innerHTML = html;
+    }
+
+    var selectedChoice = null;
+    function selectChoice(el, choice) {
+      selectedChoice = choice;
+      document.querySelectorAll('.choice-option').forEach(function(o){o.classList.remove('selected');});
+      el.classList.add('selected');
+      document.getElementById('nextBtn').disabled = false;
+    }
+
+    function submitChoice() {
+      var s = items[current];
+      responses.push({
+        id: s.id, isTarget: s.isTarget, choice: selectedChoice, lazyIs: s.lazyIs
+      });
+      selectedChoice = null;
+      current++;
+      renderScenario();
+    }
+
+    function finishScenarios() {
+      document.getElementById('scenarioArea').innerHTML = '<div class="text-center"><p>Saving your responses...</p></div>';
+      fetch('/api/scenarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:pid,responses:responses})})
+      .then(function(r){return r.json();}).then(function(d){if(d.next)window.location.href=d.next;});
+    }
+
+    renderScenario();
+  </script>
+</body>
+</html>

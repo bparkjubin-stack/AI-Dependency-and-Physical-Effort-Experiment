@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Evaluation Tasks</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card card-wide">
+      <div class="progress-bar"><% for(let i=1;i<=totalPhases;i++){%><div class="step <%=i<phase?'done':i===phase?'active':''%>"></div><%}%></div>
+      <h1>AI Evaluation Tasks</h1>
+      <p>We need your help <strong>evaluating the quality of an AI system's responses</strong>. Please read each task and the AI's answer carefully, then rate on three dimensions and provide a brief comment. Your expert judgement is very important.</p>
+      <div class="task-step-indicator" id="stepIndicator"></div>
+      <div id="taskArea"></div>
+    </div>
+  </div>
+  <script>
+    var pid = '<%= pid %>';
+    var tasks = <%- JSON.stringify(tasks) %>;
+    var currentTask = 0;
+    var taskStartTime = Date.now();
+    var ratings = {};
+
+    function renderStep() {
+      var ind = document.getElementById('stepIndicator');
+      ind.innerHTML = tasks.map(function(t,i){
+        var cls = i < currentTask ? 'done' : i === currentTask ? 'active' : '';
+        return '<div class="task-step-dot '+cls+'">'+(i+1)+'</div>';
+      }).join('');
+    }
+
+    function renderTask() {
+      renderStep();
+      taskStartTime = Date.now();
+      ratings = {};
+      if (currentTask >= tasks.length) { finishTasks(); return; }
+      var t = tasks[currentTask];
+      var html = '<h2>Task '+(currentTask+1)+': '+t.title+'</h2>';
+      html += '<p style="color:#555;font-size:0.9rem;margin:8px 0 16px;">'+t.instruction+'</p>';
+      html += '<div class="task-layout">';
+      // Left: material + AI answer
+      html += '<div class="task-panel">';
+      if(t.material) html += '<div class="task-material">'+t.material+'</div>';
+      html += '<h3>AI-Generated Answer</h3>';
+      html += '<div class="ai-answer">'+escHtml(t.aiAnswer)+'</div>';
+      html += '</div>';
+      // Right: rating panel
+      html += '<div class="task-panel">';
+      html += '<h3>Your Evaluation</h3>';
+      var dims = ['Accuracy','Completeness','Expression Quality'];
+      var dimKeys = ['accuracy','completeness','expression'];
+      dims.forEach(function(dim,di){
+        html += '<div class="rating-row"><div class="rating-label">'+dim+'</div><div class="rating-stars" id="rating_'+dimKeys[di]+'">';
+        for(var s=1;s<=5;s++){
+          html += '<div class="star" data-dim="'+dimKeys[di]+'" data-val="'+s+'" onclick="setRating(\''+dimKeys[di]+'\','+s+',this)">'+s+'</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '<label class="field-label mt-16">Brief comment (1–2 sentences)</label>';
+      html += '<textarea id="evalComment" placeholder="Your evaluation comment..."></textarea>';
+      html += '<button class="btn btn-primary btn-full mt-16" onclick="submitEval()">Submit Evaluation</button>';
+      html += '<div class="error" id="evalError" style="display:none;margin-top:8px;"></div>';
+      html += '</div></div>';
+      document.getElementById('taskArea').innerHTML = html;
+    }
+
+    function setRating(dim, val, el) {
+      ratings[dim] = val;
+      document.querySelectorAll('#rating_'+dim+' .star').forEach(function(s){
+        s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+      });
+    }
+
+    function submitEval() {
+      var comment = document.getElementById('evalComment').value.trim();
+      if(!ratings.accuracy || !ratings.completeness || !ratings.expression) {
+        document.getElementById('evalError').textContent = 'Please rate all three dimensions.';
+        document.getElementById('evalError').style.display = 'block'; return;
+      }
+      var timeSpent = Date.now() - taskStartTime;
+      fetch('/api/task-response',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        pid:pid, task_number:tasks[currentTask].number, condition:'evaluation',
+        ai_response:tasks[currentTask].aiAnswer,
+        ratings:{accuracy:ratings.accuracy,completeness:ratings.completeness,expression:ratings.expression,comment:comment},
+        time_spent_ms:timeSpent
+      })}).then(function(){
+        currentTask++;
+        renderTask();
+      });
+    }
+
+    function finishTasks() {
+      fetch('/api/tasks-complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:pid})})
+      .then(function(r){return r.json();}).then(function(d){if(d.next)window.location.href=d.next;});
+    }
+
+    function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');}
+    renderTask();
+  </script>
+</body>
+</html>

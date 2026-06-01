@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Study Complete</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card text-center">
+      <div style="font-size:3rem;margin-bottom:16px;">✅</div>
+      <h1>Study Complete!</h1>
+      <p>Thank you for participating in this research. Your responses have been recorded.</p>
+      <p>Your Prolific ID: <strong><%= pid %></strong></p>
+      <% if (prolificUrl) { %>
+        <p class="mt-16">Click the button below to return to Prolific and complete your submission.</p>
+        <a href="<%= prolificUrl %>" class="btn btn-primary btn-full mt-16" style="text-decoration:none;">Return to Prolific</a>
+        <p class="text-muted mt-16">If the button doesn't work, copy this URL:<br><small><%= prolificUrl %></small></p>
+      <% } else { %>
+        <p class="mt-16 text-muted">You may now close this window.</p>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>
