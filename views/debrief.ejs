@@ -1,51 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Study Complete</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Debriefing</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="debrief-page">
+  <div class="page-center">
     <div class="card">
-      <h1>Thank you for participating!</h1>
-      <p style="margin:12px 0 20px; color:#4b5563;">Your responses have been recorded. Here is some information about this study.</p>
-
-      <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:20px; margin-bottom:20px;">
-        <h3 style="margin-bottom:8px;">About this study</h3>
-        <p style="font-size:14px; color:#4b5563; margin-bottom:10px;">
-          This study investigated how awareness of AI errors ("hallucinations") affects decision-making vigilance and metacognition.
-        </p>
-        <p style="font-size:14px; color:#4b5563; margin-bottom:10px;">
-          The AI assistant you worked with sometimes provided information that did not match the actual data table. This was intentional — we wanted to study whether and how people detect these discrepancies.
-        </p>
-
-        <% if (condition === 'experience') { %>
-          <p style="font-size:14px; color:#4b5563;">
-            <strong>Your condition:</strong> Before the main tasks, you were shown that the AI can make errors (in the practice trial). We are studying whether this early experience makes people more vigilant in subsequent tasks.
-          </p>
-        <% } else { %>
-          <p style="font-size:14px; color:#4b5563;">
-            <strong>Your condition:</strong> You were not shown any AI errors before the main tasks. We are comparing your responses to participants who were shown AI errors early on.
-          </p>
-        <% } %>
+      <h1>Thank You for Your Participation!</h1>
+      <p class="subtitle">We would now like to tell you the true purpose of this study.</p>
+      <div class="debrief-text">
+        <p>This study actually investigates whether <strong>the experience of "outsourcing" or "delegating" tasks to AI affects people's preferences for physical activity in everyday life</strong>.</p>
+        <p>Our hypothesis is that when people delegate cognitive tasks to AI, it activates an "effort-minimising mindset" that may generalise from the cognitive domain to the physical domain, making people more inclined to choose physically effortless options.</p>
+        <p>In this study, half of the participants were asked to <strong>delegate tasks to an AI assistant</strong> (experiencing "AI did it for me"), while the other half were asked to <strong>evaluate the quality of AI-generated answers</strong> (experiencing "I'm judging AI's work"). Both groups saw identical AI output, but the psychological roles were entirely different.</p>
+        <p>The English word completion task measured your implicit cognitive state, and the "lifestyle preference survey" measured your tendency to choose physically effortless options.</p>
+        <p>We did not disclose the full purpose at the start in order to capture your natural responses. We sincerely apologise for this necessary deception.</p>
       </div>
-
-      <p style="font-size:13px; color:#6b7280; margin-bottom:20px;">
-        If you have questions about this study, please contact the research team. Your data remains anonymous.
-      </p>
-
-      <% if (prolificUrl) { %>
-        <a href="<%= prolificUrl %>" class="btn btn-primary btn-block">
-          Complete on Prolific
-        </a>
-      <% } else { %>
-        <p style="text-align:center; font-size:15px; font-weight:500; color:#16a34a;">
-          You may now close this window.
-        </p>
-      <% } %>
+      <div class="divider"></div>
+      <p style="font-weight:600;color:#333;">If you now know the true purpose and would prefer your data <strong>not</strong> to be used, please select below. Your data will be deleted, and this will not affect your compensation.</p>
+      <div class="choice-group mt-16">
+        <div class="choice-option" onclick="selectConsent(this,'yes')">
+          <div class="choice-dot"></div>
+          <span class="choice-text">I consent to my data being used</span>
+        </div>
+        <div class="choice-option" onclick="selectConsent(this,'no')">
+          <div class="choice-dot"></div>
+          <span class="choice-text">I wish to have my data deleted</span>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full mt-16" id="finishBtn" disabled onclick="submitDebrief()">Finish Study</button>
     </div>
   </div>
+  <script>
+    var pid = '<%= pid %>';
+    var consent = null;
+    function selectConsent(el, val) {
+      consent = val;
+      document.querySelectorAll('.choice-option').forEach(function(o){o.classList.remove('selected');});
+      el.classList.add('selected');
+      document.getElementById('finishBtn').disabled = false;
+    }
+    function submitDebrief() {
+      fetch('/api/debrief',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:pid,consent:consent})})
+      .then(function(r){return r.json();}).then(function(d){if(d.next)window.location.href=d.next;});
+    }
+  </script>
 </body>
 </html>

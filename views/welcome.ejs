@@ -1,58 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Decision Making Study</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Experience Study</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="center-page">
-    <div class="wide-card text-center">
-      <h1>Decision Making Study</h1>
-      <p class="text-muted">Thank you for participating. Please read the information below before proceeding.</p>
-
-      <% if (error) { %>
-        <div class="error-box"><%= error %></div>
-      <% } %>
-
-      <div class="consent-box">
-        <h3>Consent for participation in research</h3>
-        <p>You are invited to participate in a research study about decision-making with AI assistance. You will complete a series of short decision tasks using data tables and an AI assistant.</p>
-        <p><strong>What you will do:</strong> Complete 6 short decision tasks (about 1 minute each), where you analyze data and make choices with help from an AI assistant. After the tasks, you will answer a brief questionnaire.</p>
-        <p><strong>Duration:</strong> Approximately 12-15 minutes.</p>
-        <p><strong>Webcam:</strong> This study uses your webcam to track where you look on screen. The video is processed locally in your browser and is NOT recorded or transmitted to any server. Only abstract gaze coordinates (x,y positions) are collected.</p>
-        <p><strong>Risks:</strong> There are no known risks beyond those of everyday computer use.</p>
-        <p><strong>Confidentiality:</strong> All data is stored anonymously. Your participant ID is used solely for data management and will not be linked to your identity.</p>
-        <p><strong>Voluntary participation:</strong> You may withdraw at any time without penalty.</p>
-      </div>
-
-      <form action="/register" method="POST">
-        <div class="form-group">
-          <label for="pid">Participant ID</label>
-          <input type="text" id="pid" name="pid" class="form-input"
-                 placeholder="Enter your Prolific ID or participant code" required
-                 value="<%= prefillPid %>">
-        </div>
-
-        <div style="text-align:left; margin-bottom:20px;">
-          <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:14px;">
-            <input type="checkbox" name="consent" required style="margin-top:3px;">
-            <span>I have read and understood the above information. I consent to the use of my webcam for gaze tracking. I agree to participate.</span>
-          </label>
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-block">Begin study</button>
+  <div class="page-center">
+    <div class="card text-center">
+      <h1>Welcome to this Study</h1>
+      <p>This research examines how people's experiences with AI tools relate to their everyday decision-making styles. The study takes approximately 15–20 minutes.</p>
+      <p>All your responses are completely anonymous and will be used solely for academic research.</p>
+      <% if (error) { %><div class="error"><%= error %></div><% } %>
+      <form action="/join" method="POST" class="mt-24">
+        <label class="field-label">Your Prolific ID</label>
+        <input type="text" name="prolific_id" value="<%= prefill %>" placeholder="Enter your Prolific ID" required autocomplete="off">
+        <button type="submit" class="btn btn-primary btn-full mt-16">Begin Study</button>
       </form>
     </div>
   </div>
-
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const pid = params.get('PROLIFIC_PID');
-    if (pid && !document.getElementById('pid').value) {
-      document.getElementById('pid').value = pid;
-    }
-  </script>
 </body>
 </html>
