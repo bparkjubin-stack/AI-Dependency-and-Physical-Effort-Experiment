@@ -1,91 +1,91 @@
-# AI Effort Experiment
+# AI Hallucination Vigilance Experiment
 
-Behavioral experiment platform: Does delegating tasks to AI increase physical effort avoidance?
+An online experiment platform studying whether awareness of AI hallucinations improves decision-making vigilance and metacognition.
+
+## Core hypothesis
+
+When people experience AI making errors (hallucinations), they become more vigilant, less reliant on AI suggestions, and show better metacognitive calibration in subsequent AI-assisted tasks.
 
 ## Design
 
-- **IV**: AI delegation (delegate to AI) vs. AI evaluation (judge AI's work) — yoked design
-- **DV1**: Physical effort avoidance in everyday scenarios (10 binary choices)
-- **DV2**: Real behavioral choice (stretching vs. waiting)
-- **Mediators**: Effort-minimising mindset (explicit scale + implicit WFC)
-- **Covariate**: Cognitive fatigue
+**Between-subjects, single factor:**
+- **Experience group**: Sees an obvious AI hallucination in the practice trial + receives a warning
+- **Control group**: Normal practice trial + neutral message
 
-## Quick Start (Local)
+**Task**: 6 short decision scenarios (~60s each). Participants see a data table, give an initial answer, consult a real AI assistant (via OpenRouter API), then give a final answer with confidence rating.
+
+**Hallucination injection**: On hallucination trials, the AI receives a *corrupted* version of the data table in its system prompt, while the participant sees the real data. The AI naturally produces confident but incorrect analyses.
+
+## Measurements
+
+- **Weight of Advice (WOA)**: How much participants shift toward AI's suggestion
+- **Appropriate reliance**: WOA on correct trials vs. hallucination trials
+- **Confidence calibration**: Confidence rating vs. actual accuracy
+- **Chat behavior**: Verification questions, follow-ups, message count
+- **Panel switching**: How often participants check data table after AI responds
+- **Eye tracking**: Gaze distribution between data panel and AI chat (via WebGazer.js)
+- **Questionnaires**: UWES (engagement), AI trust, metacognitive awareness
+
+## Tech stack
+
+- **Backend**: Node.js + Express + Socket.IO
+- **Frontend**: EJS templates + vanilla JS
+- **AI**: OpenRouter API (OpenAI SDK compatible)
+- **Eye tracking**: WebGazer.js (webcam-based, browser-only)
+- **Database**: JSON file (lightweight, Railway-compatible)
+- **Deployment**: GitHub → Railway
+
+## Setup
 
 ```bash
-cp .env.example .env
-# Edit .env — add your keys
+# Install
 npm install
+
+# Configure
+cp .env.example .env
+# Edit .env with your OpenRouter API key
+
+# Run
 npm start
 # Open http://localhost:3000
-# Admin: http://localhost:3000/admin?pw=your-password
 ```
 
-## Setup Supabase (Free Database)
+## Environment variables
 
-1. Go to [supabase.com](https://supabase.com) and create a free account
-2. Create a new project
-3. Go to **SQL Editor** and paste the contents of `schema.sql`, then run it
-4. Go to **Settings → API** and copy:
-   - Project URL → `SUPABASE_URL`
-   - `anon` public key → `SUPABASE_KEY`
-5. Add both to your `.env` file
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENROUTER_API_KEY` | Your OpenRouter API key | (mock mode if empty) |
+| `OPENROUTER_MODEL` | LLM model to use | `anthropic/claude-sonnet-4-20250514` |
+| `CHAT_TIME_PER_TRIAL` | Seconds for AI consultation phase | `60` |
+| `PORT` | Server port | `3000` |
+| `ADMIN_PASSWORD` | Password for admin dashboard | `admin123` |
+| `PROLIFIC_COMPLETION_URL` | Prolific redirect URL | (none) |
 
-## Deploy to Railway
-
-1. Push this repo to GitHub
-2. Go to [railway.app](https://railway.app) and connect the repo
-3. Add environment variables:
-   - `OPENROUTER_API_KEY` — your OpenRouter API key
-   - `AI_MODEL` — e.g. `openai/gpt-4o-mini`
-   - `SUPABASE_URL` — from Supabase dashboard
-   - `SUPABASE_KEY` — from Supabase dashboard
-   - `ADMIN_PASSWORD` — choose a strong password
-   - `PROLIFIC_COMPLETION_URL` — your Prolific completion link
-4. Deploy
-
-## Prolific Integration
-
-Set your Prolific study URL to:
-```
-https://your-app.up.railway.app/?PROLIFIC_PID={{%PROLIFIC_PID%}}
-```
-
-Prolific will automatically pass the participant's ID.
-
-## URLs
+## Routes
 
 | URL | Description |
 |-----|-------------|
-| `/` | Participant entry (captures Prolific ID) |
-| `/admin?pw=PASSWORD` | Admin dashboard with stats & data export |
-| `/api/export/TABLE?pw=PASSWORD&format=csv` | CSV export for any table |
+| `/` | Welcome + consent |
+| `/calibration?pid=X` | Eye tracking calibration |
+| `/practice?pid=X` | Practice trial (manipulation) |
+| `/trial?pid=X` | Main experiment trials |
+| `/questionnaire?pid=X` | Post-task questionnaire |
+| `/debrief?pid=X` | Debriefing page |
+| `/admin?pw=PASSWORD` | Researcher dashboard |
+| `/api/export/TABLE?pw=PASSWORD` | JSON data export |
 
-**Exportable tables**: `participants`, `task_responses`, `wfc_responses`, `scale_responses`, `scenario_responses`, `experiment_events`
+## Railway deployment
 
-## Experiment Flow
+1. Push to GitHub
+2. Create new project on Railway
+3. Connect GitHub repo
+4. Add environment variables (especially `OPENROUTER_API_KEY`)
+5. Deploy — Railway auto-detects Node.js
 
-```
-Welcome (Prolific ID) → Consent → Demographics
-  → [Random Assignment]
-  → Cognitive Tasks (3 tasks: AI delegation OR AI evaluation)
-  → Word Fragment Completion (12 items, 10s each)
-  → State Scales (10 Likert items: fatigue + effort mindset)
-  → Lifestyle Scenarios (15 items: 10 target + 5 filler)
-  → Behavioral Choice (stretch £0.45 vs. wait £0.15)
-  → Manipulation Check (6 Likert items)
-  → Debriefing + Data Consent
-  → Completion → Prolific Redirect
-```
+## Literature
 
-## Architecture
-
-```
-server.js            Express routes + API endpoints
-lib/db.js            Supabase database operations (with in-memory fallback)
-lib/ai.js            OpenRouter API proxy
-lib/experiment.js    All experimental materials, randomisation, WFC scoring
-views/*.ejs          EJS templates for each experiment phase
-public/css/style.css Light theme styling
-schema.sql           PostgreSQL table definitions for Supabase
-```
+- Sniezek & Buckley (1995) — Judge-Advisor System
+- Dietvorst et al. (2015) — Algorithm aversion
+- Buccinca et al. (2021) — Cognitive forcing functions
+- Yin et al. (2019) — Trust calibration in ML
+- Parasuraman & Manzey (2010) — Automation complacency

@@ -1,70 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="page-center">
-    <div class="card card-wide">
-      <h1>📊 Experiment Dashboard</h1>
-      <div class="admin-grid" id="statsGrid">
-        <div class="stat-card"><div class="number" id="statTotal"><%= stats.total %></div><div class="label">Total Participants</div></div>
-        <div class="stat-card"><div class="number" id="statDelegation"><%= stats.delegation %></div><div class="label">Delegation Group</div></div>
-        <div class="stat-card"><div class="number" id="statEvaluation"><%= stats.evaluation %></div><div class="label">Evaluation Group</div></div>
-        <div class="stat-card"><div class="number" id="statCompleted"><%= stats.completed %></div><div class="label">Completed</div></div>
-      </div>
+  <div class="admin-page">
+    <h1>Experiment dashboard</h1>
 
-      <div class="divider"></div>
-      <h2>Export Data</h2>
-      <p class="subtitle">Download each table as CSV or JSON.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;">
-        <a class="btn btn-outline" href="/api/export/participants?pw=<%= password %>&format=csv">participants.csv</a>
-        <a class="btn btn-outline" href="/api/export/task_responses?pw=<%= password %>&format=csv">task_responses.csv</a>
-        <a class="btn btn-outline" href="/api/export/wfc_responses?pw=<%= password %>&format=csv">wfc_responses.csv</a>
-        <a class="btn btn-outline" href="/api/export/scale_responses?pw=<%= password %>&format=csv">scale_responses.csv</a>
-        <a class="btn btn-outline" href="/api/export/scenario_responses?pw=<%= password %>&format=csv">scenario_responses.csv</a>
-        <a class="btn btn-outline" href="/api/export/experiment_events?pw=<%= password %>&format=csv">events.csv</a>
+    <!-- Stats -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="num"><%= participants.length %></div>
+        <div class="label">Total participants</div>
       </div>
+      <div class="stat-card">
+        <div class="num"><%= counts.experience || 0 %></div>
+        <div class="label">Experience group</div>
+      </div>
+      <div class="stat-card">
+        <div class="num"><%= counts.control || 0 %></div>
+        <div class="label">Control group</div>
+      </div>
+      <div class="stat-card">
+        <div class="num"><%= responses.length %></div>
+        <div class="label">Total responses</div>
+      </div>
+      <div class="stat-card">
+        <div class="num"><%= chatMessages.length %></div>
+        <div class="label">Chat messages</div>
+      </div>
+      <div class="stat-card">
+        <div class="num"><%= participants.filter(p => p.trials_completed).length %></div>
+        <div class="label">Completed</div>
+      </div>
+    </div>
 
-      <div class="divider"></div>
-      <h2>Participants</h2>
-      <button class="btn btn-outline mb-16" onclick="loadData()">Refresh Data</button>
-      <div style="overflow-x:auto;">
-        <table class="data-table" id="participantTable">
-          <thead><tr><th>Prolific ID</th><th>Condition</th><th>Phase</th><th>Started</th><th>Completed</th><th>Debrief</th></tr></thead>
-          <tbody id="ptBody"><tr><td colspan="6" class="text-muted">Click "Refresh Data" to load</td></tr></tbody>
-        </table>
+    <!-- Export buttons -->
+    <div style="margin-bottom:20px; display:flex; gap:8px; flex-wrap:wrap;">
+      <a href="/api/export/participants?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export participants</a>
+      <a href="/api/export/responses?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export responses</a>
+      <a href="/api/export/chat_messages?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export chat logs</a>
+      <a href="/api/export/behavioral_events?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export behavioral events</a>
+      <a href="/api/export/eye_tracking?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export eye tracking</a>
+      <a href="/api/export/questionnaires?pw=<%= pw %>" class="btn btn-secondary btn-sm" target="_blank">Export questionnaires</a>
+    </div>
+
+    <!-- Participant table -->
+    <h2 style="margin-bottom:12px;">Participants</h2>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Condition</th>
+          <th>Phase</th>
+          <th>Trial</th>
+          <th>Completed</th>
+          <th>Created</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% participants.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).forEach(p => { %>
+          <tr>
+            <td><code><%= p.pid %></code></td>
+            <td><span class="badge <%= p.condition === 'experience' ? 'badge-amber' : 'badge-blue' %>"><%= p.condition %></span></td>
+            <td><%= p.current_phase %></td>
+            <td><%= p.current_trial %>/<%= p.total_trials %></td>
+            <td><%= p.trials_completed ? 'Yes' : 'No' %></td>
+            <td><%= new Date(p.created_at).toLocaleString() %></td>
+            <td><button class="btn btn-sm btn-secondary" onclick="viewDetails('<%= p.pid %>')">View</button></td>
+          </tr>
+        <% }); %>
+        <% if (participants.length === 0) { %>
+          <tr><td colspan="7" style="text-align:center; color:#9ca3af; padding:20px;">No participants yet</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+
+    <!-- Response summary -->
+    <h2 style="margin:24px 0 12px;">Response summary</h2>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Trial</th>
+          <th>Hallucination?</th>
+          <th>Initial</th>
+          <th>Final</th>
+          <th>Changed?</th>
+          <th>Correct?</th>
+          <th>Confidence</th>
+          <th>Consult time</th>
+          <th>Messages</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% responses.slice(-50).reverse().forEach(r => { %>
+          <tr>
+            <td><code><%= r.pid %></code></td>
+            <td><%= r.trial_id %></td>
+            <td><%= r.is_hallucination_trial ? '<span class="badge badge-red">Yes</span>' : 'No' %></td>
+            <td><%= r.initial_answer %></td>
+            <td><%= r.final_answer %></td>
+            <td><%= r.answer_changed ? 'Yes' : 'No' %></td>
+            <td><%= r.is_correct ? '<span class="badge badge-green">Correct</span>' : '<span class="badge badge-red">Wrong</span>' %></td>
+            <td><%= r.confidence %>%</td>
+            <td><%= r.consultation_duration_ms ? Math.round(r.consultation_duration_ms / 1000) + 's' : '-' %></td>
+            <td><%= r.chat_message_count %></td>
+          </tr>
+        <% }); %>
+        <% if (responses.length === 0) { %>
+          <tr><td colspan="9" style="text-align:center; color:#9ca3af; padding:20px;">No responses yet</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+
+    <!-- Detail modal -->
+    <div id="detailModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:999; overflow-y:auto; padding:40px;">
+      <div style="max-width:700px; margin:0 auto; background:#fff; border-radius:12px; padding:24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h2 id="detailTitle">Participant details</h2>
+          <button class="btn btn-sm btn-secondary" onclick="document.getElementById('detailModal').style.display='none'">Close</button>
+        </div>
+        <pre id="detailContent" style="background:#f9fafb; padding:16px; border-radius:8px; font-size:12px; overflow-x:auto; max-height:70vh; overflow-y:auto;"></pre>
       </div>
     </div>
   </div>
+
   <script>
-    var pw = '<%= password %>';
-    function loadData() {
-      fetch('/api/admin-data?pw='+pw).then(function(r){return r.json();}).then(function(d){
-        // Update stats
-        var parts = d.participants || [];
-        document.getElementById('statTotal').textContent = parts.length;
-        document.getElementById('statDelegation').textContent = parts.filter(function(p){return p.condition==='delegation';}).length;
-        document.getElementById('statEvaluation').textContent = parts.filter(function(p){return p.condition==='evaluation';}).length;
-        document.getElementById('statCompleted').textContent = parts.filter(function(p){return p.completed_at;}).length;
-        // Update table
-        var html = '';
-        parts.forEach(function(p){
-          html += '<tr>';
-          html += '<td>'+p.prolific_id+'</td>';
-          html += '<td><span style="color:'+(p.condition==='delegation'?'#4A7BF7':'#27ae60')+'">'+p.condition+'</span></td>';
-          html += '<td>'+( p.current_phase||'')+'</td>';
-          html += '<td>'+(p.started_at?new Date(p.started_at).toLocaleString():'')+'</td>';
-          html += '<td>'+(p.completed_at?new Date(p.completed_at).toLocaleString():'—')+'</td>';
-          html += '<td>'+(p.debrief_consent||'—')+'</td>';
-          html += '</tr>';
-        });
-        document.getElementById('ptBody').innerHTML = html || '<tr><td colspan="6">No participants yet</td></tr>';
-      });
+    const PW = '<%= pw %>';
+    async function viewDetails(pid) {
+      const res = await fetch('/admin/participant/' + pid + '?pw=' + PW);
+      const data = await res.json();
+      document.getElementById('detailTitle').textContent = 'Participant: ' + pid;
+      document.getElementById('detailContent').textContent = JSON.stringify(data, null, 2);
+      document.getElementById('detailModal').style.display = 'block';
     }
-    loadData();
   </script>
 </body>
 </html>

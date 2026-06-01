@@ -1,17 +1,18 @@
 {
-  "name": "ai-effort-experiment",
+  "name": "hallucination-vigilance-experiment",
   "version": "1.0.0",
-  "description": "Behavioral experiment: Does AI delegation increase physical effort avoidance?",
+  "description": "AI Hallucination Vigilance Experiment - Does hallucination awareness improve metacognition?",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
+    "socket.io": "^4.7.2",
     "ejs": "^3.1.9",
     "openai": "^4.20.0",
     "dotenv": "^16.3.1",
-    "uuid": "^9.0.0",
-    "@supabase/supabase-js": "^2.39.0"
+    "uuid": "^9.0.0"
   }
 }

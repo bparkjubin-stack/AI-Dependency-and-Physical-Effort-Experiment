@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eye Tracking Setup</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .cal-container { position: relative; width: 100vw; height: 100vh; }
+    .cal-instructions { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; max-width: 420px; z-index: 10; }
+    .cam-preview { width: 320px; height: 240px; border-radius: 8px; border: 2px solid #d1d5db; margin: 12px auto; background: #000; }
+    #webgazerVideoContainer { display: none !important; }
+    .cal-progress { margin-top: 12px; font-size: 14px; color: #6b7280; }
+    .skip-link { display: block; margin-top: 16px; font-size: 13px; color: #9ca3af; cursor: pointer; }
+    .skip-link:hover { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="cal-container" id="calContainer">
+    <div class="cal-instructions" id="calInstructions">
+      <h2>Eye tracking calibration</h2>
+      <p class="text-muted" style="margin:8px 0 16px">
+        We'll use your webcam to track where you look on screen.<br>
+        Please allow camera access when prompted.
+      </p>
+      <video id="camPreview" class="cam-preview" autoplay playsinline></video>
+      <p class="text-muted text-small" style="margin:8px 0">
+        Make sure your face is well-lit and centered.
+      </p>
+      <button class="btn btn-primary" id="startCalBtn" onclick="startCalibration()">
+        Start calibration
+      </button>
+      <div class="cal-progress" id="calProgress"></div>
+      <span class="skip-link" onclick="skipCalibration()">Skip eye tracking (continue without)</span>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/webgazer@2.1.0/dist/webgazer.min.js"></script>
+  <script>
+    const PID = '<%= pid %>';
+    const CAL_POINTS = [
+      [10, 10], [50, 10], [90, 10],
+      [10, 50], [50, 50], [90, 50],
+      [10, 90], [50, 90], [90, 90]
+    ];
+    let calIndex = 0;
+    let calClicks = 0;
+    let webgazerReady = false;
+
+    // Show camera preview
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        document.getElementById('camPreview').srcObject = stream;
+      })
+      .catch(() => {
+        document.getElementById('calProgress').textContent = 'Camera not available. You can skip eye tracking.';
+      });
+
+    async function startCalibration() {
+      const btn = document.getElementById('startCalBtn');
+      btn.disabled = true;
+      btn.textContent = 'Initializing...';
+      document.getElementById('calProgress').textContent = 'Loading eye tracker...';
+
+      if (typeof webgazer === 'undefined') {
+        document.getElementById('calProgress').textContent = 'Eye tracking library failed to load. You can skip.';
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+        return;
+      }
+
+      try {
+        webgazer.params.showVideoPreview = false;
+        webgazer.params.showFaceOverlay = false;
+        webgazer.params.showFaceFeedbackBox = false;
+        webgazer.params.showGazeDot = false;
+
+        await webgazer
+          .setRegression('ridge')
+          .setGazeListener(function(data, clock) {})
+          .begin();
+
+        // Hide any WebGazer UI elements that may have appeared
+        try { webgazer.showVideoPreview(false); } catch(e) {}
+        try { webgazer.showPredictionPoints(false); } catch(e) {}
+        var wgVideo = document.getElementById('webgazerVideoContainer');
+        if (wgVideo) wgVideo.style.display = 'none';
+        var wgDot = document.getElementById('webgazerGazeDot');
+        if (wgDot) wgDot.style.display = 'none';
+
+        webgazerReady = true;
+        document.getElementById('calInstructions').style.display = 'none';
+
+        // Stop the preview stream
+        var preview = document.getElementById('camPreview');
+        if (preview && preview.srcObject) {
+          preview.srcObject.getTracks().forEach(function(t) { t.stop(); });
+        }
+
+        showNextCalPoint();
+      } catch (err) {
+        console.error('WebGazer init failed:', err);
+        document.getElementById('calProgress').textContent = 'Eye tracker failed to initialize: ' + err.message + '. You can skip.';
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+      }
+    }
+
+    function showNextCalPoint() {
+      // Remove existing point
+      const existing = document.querySelector('.cal-point');
+      if (existing) existing.remove();
+
+      if (calIndex >= CAL_POINTS.length) {
+        finishCalibration();
+        return;
+      }
+
+      const [xPct, yPct] = CAL_POINTS[calIndex];
+      const x = (xPct / 100) * window.innerWidth;
+      const y = (yPct / 100) * window.innerHeight;
+
+      const dot = document.createElement('div');
+      dot.className = 'cal-point';
+      dot.style.left = x + 'px';
+      dot.style.top = y + 'px';
+      dot.addEventListener('click', () => {
+        calClicks++;
+        dot.classList.add('clicked');
+        // WebGazer auto-records clicks for calibration in 2.x
+        setTimeout(() => {
+          calIndex++;
+          showNextCalPoint();
+        }, 300);
+      });
+
+      document.getElementById('calContainer').appendChild(dot);
+
+      // Show progress
+      const prog = document.createElement('div');
+      prog.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);font-size:13px;color:#6b7280';
+      prog.textContent = `Click the blue dot (${calIndex + 1}/${CAL_POINTS.length})`;
+      prog.id = 'calLabel';
+      const old = document.getElementById('calLabel');
+      if (old) old.remove();
+      document.body.appendChild(prog);
+    }
+
+    function finishCalibration() {
+      const old = document.getElementById('calLabel');
+      if (old) old.remove();
+
+      localStorage.setItem('eyeTrackingEnabled', 'true');
+      window.location.href = '/practice?pid=' + PID;
+    }
+
+    function skipCalibration() {
+      if (webgazerReady && window.webgazer) {
+        webgazer.end();
+      }
+      localStorage.setItem('eyeTrackingEnabled', 'false');
+      window.location.href = '/practice?pid=' + PID;
+    }
+  </script>
+</body>
+</html>

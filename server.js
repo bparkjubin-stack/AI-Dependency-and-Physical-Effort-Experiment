@@ -1,14 +1,24 @@
 require('dotenv').config();
+
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+
 const db = require('./lib/db');
-const ai = require('./lib/ai');
-const exp = require('./lib/experiment');
+const aiAdvisor = require('./lib/ai-advisor');
+const assignment = require('./lib/assignment');
+const scenarios = require('./lib/scenarios');
+const trialManager = require('./lib/trial-manager');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
 const PORT = process.env.PORT || 3000;
+const CHAT_TIME_PER_TRIAL = parseInt(process.env.CHAT_TIME_PER_TRIAL) || 60;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const PROLIFIC_URL = process.env.PROLIFIC_COMPLETION_URL || '';
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -16,294 +26,293 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ===== HELPER =====
-function phaseNum(phase) {
-  const phases = ['consent','demographics','tasks','wfc','scales','scenarios','behavior','manip_check'];
-  const idx = phases.indexOf(phase);
-  return idx >= 0 ? idx + 1 : 0;
-}
+// ========== PARTICIPANT ROUTES ==========
 
-// ===== ROUTES =====
-
-// Welcome — capture Prolific PID
+// Welcome + consent
 app.get('/', (req, res) => {
-  const prefill = req.query.PROLIFIC_PID || req.query.prolific_pid || '';
-  res.render('welcome', { prefill, error: null });
+  res.render('welcome', {
+    prefillPid: req.query.PROLIFIC_PID || '',
+    error: null
+  });
 });
 
-// Join — create participant + assign condition
-app.post('/join', async (req, res) => {
-  const pid = (req.body.prolific_id || '').trim();
-  if (!pid) return res.render('welcome', { prefill: '', error: 'Please enter your Prolific ID.' });
-
-  try {
-    let participant = await db.getParticipant(pid);
-    if (participant) {
-      // Returning participant — resume from where they left off
-      const phase = participant.current_phase || 'consent';
-      if (phase === 'complete') return res.redirect(`/complete?pid=${pid}`);
-      return res.redirect(`/${phase}?pid=${pid}`);
-    }
-    const condition = await db.getNextCondition();
-    await db.createParticipant({ prolific_id: pid, condition, current_phase: 'consent' });
-    res.redirect(`/consent?pid=${pid}`);
-  } catch (err) {
-    console.error('[Join]', err.message);
-    res.render('welcome', { prefill: pid, error: 'An error occurred. Please try again.' });
+// Register participant
+app.post('/register', (req, res) => {
+  const pid = (req.body.pid || '').trim();
+  if (!pid) {
+    return res.render('welcome', { prefillPid: '', error: 'Please enter your participant ID.' });
   }
+  if (!req.body.consent) {
+    return res.render('welcome', { prefillPid: pid, error: 'You must agree to participate.' });
+  }
+
+  // Check if returning
+  let participant = db.getParticipant(pid);
+  if (participant) {
+    return res.redirect(getResumeUrl(participant));
+  }
+
+  // New participant
+  const { condition, sequenceId } = assignment.assignCondition();
+  participant = db.createParticipant(pid, condition, sequenceId);
+  console.log(`[Assign] ${pid} → ${condition} (${sequenceId}) | Counts: ${JSON.stringify(db.getAssignmentCounts())}`);
+
+  res.redirect(`/calibration?pid=${pid}`);
 });
 
-// Consent
-app.get('/consent', async (req, res) => {
+// Eye tracking calibration
+app.get('/calibration', (req, res) => {
   const pid = req.query.pid;
   if (!pid) return res.redirect('/');
-  res.render('consent', { pid, phase: 1, totalPhases: 8 });
-});
-
-app.post('/api/consent', async (req, res) => {
-  const { pid } = req.body;
-  try {
-    await db.updateParticipant(pid, { consented: true, current_phase: 'demographics' });
-    res.json({ ok: true, next: `/demographics?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Demographics
-app.get('/demographics', async (req, res) => {
-  const pid = req.query.pid;
-  if (!pid) return res.redirect('/');
-  res.render('demographics', { pid, phase: 2, totalPhases: 8 });
-});
-
-app.post('/api/demographics', async (req, res) => {
-  const { pid, age, gender, education, occupation, exercise_freq, ai_usage_freq } = req.body;
-  try {
-    await db.updateParticipant(pid, { age: parseInt(age), gender, education, occupation, exercise_freq, ai_usage_freq, current_phase: 'tasks' });
-    res.json({ ok: true, next: `/tasks?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Tasks — render based on condition
-app.get('/tasks', async (req, res) => {
-  const pid = req.query.pid;
-  if (!pid) return res.redirect('/');
-  const participant = await db.getParticipant(pid);
+  const participant = db.getParticipant(pid);
   if (!participant) return res.redirect('/');
-  const condition = participant.condition;
-  const template = condition === 'delegation' ? 'task-delegation' : 'task-evaluation';
-  res.render(template, { pid, condition, tasks: exp.TASKS, phase: 3, totalPhases: 8 });
+  db.updateParticipant(pid, { current_phase: 'calibration' });
+  res.render('calibration', { pid });
 });
 
-// AI Chat endpoint (delegation group only)
-app.post('/api/ai-chat', async (req, res) => {
-  const { prompt, taskNumber } = req.body;
-  try {
-    const task = exp.TASKS.find(t => t.number === taskNumber);
-    let fullPrompt = prompt;
-    if (task && task.material) {
-      fullPrompt = `Context material:\n${task.material}\n\nUser request: ${prompt}`;
-    }
-    const response = await ai.chat(exp.AI_SYSTEM_PROMPT, fullPrompt);
-    res.json({ response });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Save task response
-app.post('/api/task-response', async (req, res) => {
-  const { pid, task_number, condition, prompt_sent, ai_response, submitted_answer, ratings, time_spent_ms } = req.body;
-  try {
-    await db.saveTaskResponse({
-      prolific_id: pid, task_number, condition,
-      prompt_sent: prompt_sent || null,
-      ai_response: ai_response || null,
-      submitted_answer: submitted_answer || null,
-      ratings: ratings || null,
-      time_spent_ms: time_spent_ms || null,
-    });
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Mark tasks complete
-app.post('/api/tasks-complete', async (req, res) => {
-  const { pid } = req.body;
-  try {
-    await db.updateParticipant(pid, { current_phase: 'wfc' });
-    res.json({ ok: true, next: `/wfc?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// WFC
-app.get('/wfc', async (req, res) => {
+// Practice trial
+app.get('/practice', (req, res) => {
   const pid = req.query.pid;
   if (!pid) return res.redirect('/');
-  const items = exp.getShuffledWFC();
-  res.render('wfc', { pid, items: JSON.stringify(items), phase: 4, totalPhases: 8 });
+  const participant = db.getParticipant(pid);
+  if (!participant) return res.redirect('/');
+
+  db.updateParticipant(pid, { current_phase: 'practice' });
+  const practice = trialManager.getPracticeTrial(pid);
+  const feedback = trialManager.getPracticeFeedback(pid);
+
+  res.render('trial', {
+    pid,
+    trial: practice,
+    trialNumber: 0,
+    totalTrials: participant.total_trials,
+    isPractice: true,
+    feedback,
+    chatTimeLimit: CHAT_TIME_PER_TRIAL
+  });
 });
 
-app.post('/api/wfc', async (req, res) => {
-  const { pid, responses } = req.body;
-  try {
-    const rows = responses.map((r, i) => ({
-      prolific_id: pid,
-      trial_order: i + 1,
-      fragment: r.fragment,
-      response: r.response || null,
-      response_time_ms: r.response_time_ms || null,
-      is_target: r.category !== 'filler',
-      category: r.category,
-      scored: exp.scoreWFCResponse(r.id, r.response),
-      timed_out: r.timed_out || false,
-    }));
-    await db.saveWFCResponses(rows);
-    await db.updateParticipant(pid, { current_phase: 'scales' });
-    res.json({ ok: true, next: `/scales?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Scales
-app.get('/scales', async (req, res) => {
+// Main trial page
+app.get('/trial', (req, res) => {
   const pid = req.query.pid;
   if (!pid) return res.redirect('/');
-  const items = exp.getShuffledScales();
-  res.render('scales', { pid, items: JSON.stringify(items), phase: 5, totalPhases: 8 });
+  const participant = db.getParticipant(pid);
+  if (!participant) return res.redirect('/');
+
+  if (participant.trials_completed) {
+    return res.redirect(`/questionnaire?pid=${pid}`);
+  }
+
+  db.updateParticipant(pid, { current_phase: 'trials' });
+  const trial = trialManager.getCurrentTrial(pid);
+  if (!trial) return res.redirect(`/questionnaire?pid=${pid}`);
+
+  res.render('trial', {
+    pid,
+    trial,
+    trialNumber: participant.current_trial + 1,
+    totalTrials: participant.total_trials,
+    isPractice: false,
+    feedback: null,
+    chatTimeLimit: CHAT_TIME_PER_TRIAL
+  });
 });
 
-app.post('/api/scales', async (req, res) => {
-  const { pid, responses } = req.body;
-  try {
-    const rows = responses.map(r => ({
-      prolific_id: pid, scale: r.scale, item_id: r.id, item_text: r.text, value: r.value,
-    }));
-    await db.saveScaleResponses(rows);
-    await db.updateParticipant(pid, { current_phase: 'scenarios' });
-    res.json({ ok: true, next: `/scenarios?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Scenarios
-app.get('/scenarios', async (req, res) => {
+// Questionnaire
+app.get('/questionnaire', (req, res) => {
   const pid = req.query.pid;
   if (!pid) return res.redirect('/');
-  const items = exp.getShuffledScenarios();
-  res.render('scenarios', { pid, items: JSON.stringify(items), phase: 6, totalPhases: 8 });
-});
-
-app.post('/api/scenarios', async (req, res) => {
-  const { pid, responses } = req.body;
-  try {
-    const rows = responses.map((r, i) => ({
-      prolific_id: pid,
-      trial_order: i + 1,
-      scenario_id: r.id,
-      is_target: r.isTarget,
-      choice: r.choice,
-      is_lazy: r.isTarget ? (r.choice === r.lazyIs) : null,
-    }));
-    await db.saveScenarioResponses(rows);
-    await db.updateParticipant(pid, { current_phase: 'behavior' });
-    res.json({ ok: true, next: `/behavior?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Behavior choice
-app.get('/behavior', async (req, res) => {
-  const pid = req.query.pid;
-  if (!pid) return res.redirect('/');
-  res.render('behavior', { pid, phase: 7, totalPhases: 8 });
-});
-
-app.post('/api/behavior', async (req, res) => {
-  const { pid, choice } = req.body;
-  try {
-    await db.saveEvent({ prolific_id: pid, event_type: 'behavior_choice', data: { choice, is_lazy: choice === 'wait' } });
-    await db.updateParticipant(pid, { current_phase: 'manip_check' });
-    res.json({ ok: true, next: `/manip-check?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Manipulation check
-app.get('/manip-check', async (req, res) => {
-  const pid = req.query.pid;
-  if (!pid) return res.redirect('/');
-  res.render('manip-check', { pid, items: exp.MANIP_CHECK_ITEMS, phase: 8, totalPhases: 8 });
-});
-
-app.post('/api/manip-check', async (req, res) => {
-  const { pid, responses } = req.body;
-  try {
-    await db.saveEvent({ prolific_id: pid, event_type: 'manipulation_check', data: responses });
-    await db.updateParticipant(pid, { current_phase: 'debrief' });
-    res.json({ ok: true, next: `/debrief?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  const participant = db.getParticipant(pid);
+  if (!participant) return res.redirect('/');
+  db.updateParticipant(pid, { current_phase: 'questionnaire' });
+  res.render('questionnaire', { pid });
 });
 
 // Debrief
-app.get('/debrief', async (req, res) => {
+app.get('/debrief', (req, res) => {
   const pid = req.query.pid;
   if (!pid) return res.redirect('/');
-  const participant = await db.getParticipant(pid);
-  res.render('debrief', { pid, condition: participant ? participant.condition : '' });
+  const participant = db.getParticipant(pid);
+  if (!participant) return res.redirect('/');
+  db.updateParticipant(pid, { current_phase: 'debrief' });
+  const prolificUrl = process.env.PROLIFIC_COMPLETION_URL || null;
+  res.render('debrief', { pid, condition: participant.condition, prolificUrl });
 });
 
-app.post('/api/debrief', async (req, res) => {
-  const { pid, consent } = req.body;
-  try {
-    await db.saveEvent({ prolific_id: pid, event_type: 'debrief_consent', data: { consent } });
-    await db.updateParticipant(pid, { debrief_consent: consent, completed_at: new Date().toISOString(), current_phase: 'complete' });
-    res.json({ ok: true, next: `/complete?pid=${pid}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// ========== ADMIN ROUTES ==========
 
-// Complete
-app.get('/complete', (req, res) => {
-  const pid = req.query.pid;
-  res.render('complete', { pid, prolificUrl: PROLIFIC_URL });
-});
-
-// ===== ADMIN =====
-
-app.get('/admin', async (req, res) => {
-  if (req.query.pw !== ADMIN_PASSWORD) return res.status(403).send('Access denied. Use /admin?pw=PASSWORD');
-  const stats = await db.getStats();
-  res.render('admin', { stats, password: ADMIN_PASSWORD });
-});
-
-app.get('/api/admin-data', async (req, res) => {
-  if (req.query.pw !== ADMIN_PASSWORD) return res.status(403).json({ error: 'denied' });
-  const [participants, tasks, wfc, scales, scenarios, events] = await Promise.all([
-    db.getAll('participants'), db.getAll('task_responses'), db.getAll('wfc_responses'),
-    db.getAll('scale_responses'), db.getAll('scenario_responses'), db.getAll('experiment_events'),
-  ]);
-  res.json({ participants, tasks, wfc, scales, scenarios, events });
-});
-
-app.get('/api/export/:table', async (req, res) => {
-  if (req.query.pw !== ADMIN_PASSWORD) return res.status(403).json({ error: 'denied' });
-  const valid = ['participants','task_responses','wfc_responses','scale_responses','scenario_responses','experiment_events'];
-  if (!valid.includes(req.params.table)) return res.status(400).json({ error: 'Invalid table', valid });
-  const data = await db.getAll(req.params.table);
-  // Return as CSV
-  if (req.query.format === 'csv' && data.length > 0) {
-    const headers = Object.keys(data[0]);
-    const csv = [headers.join(','), ...data.map(row => headers.map(h => {
-      let v = row[h];
-      if (v === null || v === undefined) return '';
-      if (typeof v === 'object') v = JSON.stringify(v);
-      return `"${String(v).replace(/"/g, '""')}"`;
-    }).join(','))].join('\n');
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=${req.params.table}.csv`);
-    return res.send(csv);
+app.get('/admin', (req, res) => {
+  const pw = req.query.pw;
+  if (pw !== ADMIN_PASSWORD) {
+    return res.status(401).send('Unauthorized. Use /admin?pw=YOUR_PASSWORD');
   }
+  const participants = db.getAll('participants');
+  const responses = db.getAll('responses');
+  const chatMessages = db.getAll('chat_messages');
+  const counts = db.getAssignmentCounts();
+  res.render('admin', { participants, responses, chatMessages, counts, pw: ADMIN_PASSWORD });
+});
+
+app.get('/admin/participant/:pid', (req, res) => {
+  const pw = req.query.pw;
+  if (pw !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+  const data = db.getFullParticipantData(req.params.pid);
+  if (!data) return res.status(404).json({ error: 'Not found' });
   res.json(data);
 });
 
-// ===== START =====
-app.listen(PORT, () => {
+app.get('/api/export/:table', (req, res) => {
+  const pw = req.query.pw;
+  if (pw !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+  const table = req.params.table;
+  const valid = ['participants', 'chat_messages', 'behavioral_events', 'eye_tracking', 'responses', 'questionnaires'];
+  if (!valid.includes(table)) return res.status(400).json({ error: 'Invalid table', valid });
+  res.json(db.getAll(table));
+});
+
+app.get('/api/status', (req, res) => {
+  const counts = db.getAssignmentCounts();
+  res.json({
+    assignment_counts: counts,
+    ai_mode: aiAdvisor.isMockMode() ? 'MOCK' : 'LIVE',
+    total_participants: db.getAll('participants').length,
+    total_responses: db.getAll('responses').length,
+    total_messages: db.getAll('chat_messages').length
+  });
+});
+
+// ========== HELPERS ==========
+
+function getResumeUrl(participant) {
+  const pid = participant.pid;
+  switch (participant.current_phase) {
+    case 'consent': return `/`;
+    case 'calibration': return `/calibration?pid=${pid}`;
+    case 'practice': return `/practice?pid=${pid}`;
+    case 'trials': return `/trial?pid=${pid}`;
+    case 'questionnaire': return `/questionnaire?pid=${pid}`;
+    case 'debrief': return `/debrief?pid=${pid}`;
+    default: return `/trial?pid=${pid}`;
+  }
+}
+
+// ========== SOCKET.IO ==========
+
+io.on('connection', (socket) => {
+
+  // ---- Start AI session for a trial ----
+  socket.on('trial:start', ({ pid, trialId, isPractice }) => {
+    const sessionId = `${pid}_${trialId}_${Date.now()}`;
+    aiAdvisor.initSession(sessionId);
+    socket.emit('trial:ready', { sessionId });
+  });
+
+  // ---- User sends message to AI ----
+  socket.on('trial:send-message', async ({ pid, sessionId, trialId, message, trialConfig }) => {
+    // Save user message
+    db.saveChatMessage({
+      pid,
+      trial_id: trialId,
+      role: 'user',
+      content: message,
+      is_hallucination_trial: trialConfig.is_hallucination || false
+    });
+
+    // Get AI response with appropriate data (real or corrupted)
+    const configForAI = {
+      ...trialConfig,
+      real_data: trialConfig.real_data,
+      corrupted_data: trialConfig.corrupted_data
+    };
+
+    const reply = await aiAdvisor.getResponse(sessionId, message, configForAI);
+
+    // Save AI message
+    db.saveChatMessage({
+      pid,
+      trial_id: trialId,
+      role: 'assistant',
+      content: reply,
+      is_hallucination_trial: trialConfig.is_hallucination || false
+    });
+
+    socket.emit('trial:ai-response', { reply });
+  });
+
+  // ---- Get initial AI recommendation ----
+  socket.on('trial:get-recommendation', async ({ pid, sessionId, trialId, trialConfig }) => {
+    const configForAI = {
+      ...trialConfig,
+      real_data: trialConfig.real_data,
+      corrupted_data: trialConfig.corrupted_data
+    };
+
+    const reply = await aiAdvisor.getInitialRecommendation(sessionId, configForAI);
+
+    db.saveChatMessage({
+      pid,
+      trial_id: trialId,
+      role: 'assistant',
+      content: reply,
+      is_hallucination_trial: trialConfig.is_hallucination || false
+    });
+
+    socket.emit('trial:ai-recommendation', { reply });
+  });
+
+  // ---- Save response ----
+  socket.on('trial:save-response', ({ pid, responseData }) => {
+    db.saveResponse({ pid, ...responseData });
+  });
+
+  // ---- Advance to next trial ----
+  socket.on('trial:advance', ({ pid, isPractice }) => {
+    if (isPractice) {
+      db.updateParticipant(pid, { practice_completed: true, current_phase: 'trials', current_trial: 0 });
+      socket.emit('trial:next', { url: `/trial?pid=${pid}` });
+    } else {
+      const next = trialManager.advanceToNextTrial(pid);
+      if (next) {
+        socket.emit('trial:next', { url: `/trial?pid=${pid}` });
+      } else {
+        socket.emit('trial:next', { url: `/questionnaire?pid=${pid}` });
+      }
+    }
+  });
+
+  // ---- End AI session ----
+  socket.on('trial:end-session', ({ sessionId }) => {
+    aiAdvisor.clearSession(sessionId);
+  });
+
+  // ---- Behavioral events ----
+  socket.on('behavior:event', (data) => {
+    db.saveBehavioralEvent(data);
+  });
+
+  // ---- Eye tracking data ----
+  socket.on('eyetracking:batch', (data) => {
+    db.saveEyeTrackingBatch(data);
+  });
+
+  // ---- Save questionnaire ----
+  socket.on('questionnaire:save', ({ pid, scaleName, responses }) => {
+    db.saveQuestionnaire({ pid, scale_name: scaleName, responses });
+  });
+
+  socket.on('questionnaire:complete', ({ pid }) => {
+    db.updateParticipant(pid, { questionnaire_completed: true, current_phase: 'debrief' });
+    socket.emit('questionnaire:done', { url: `/debrief?pid=${pid}` });
+  });
+});
+
+// ========== START ==========
+server.listen(PORT, () => {
   console.log(`\n========================================`);
-  console.log(`  AI Effort Experiment`);
+  console.log(`  Hallucination Vigilance Experiment`);
   console.log(`  http://localhost:${PORT}`);
-  console.log(`  Admin: http://localhost:${PORT}/admin?pw=${ADMIN_PASSWORD}`);
+  console.log(`  AI: ${aiAdvisor.isMockMode() ? 'MOCK' : 'LIVE (OpenRouter)'}`);
+  console.log(`  Chat time/trial: ${CHAT_TIME_PER_TRIAL}s`);
+  console.log(`  Counts: ${JSON.stringify(db.getAssignmentCounts())}`);
   console.log(`========================================\n`);
 });

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task <%= isPractice ? 'Practice' : trialNumber + '/' + totalTrials %></title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .cam-mini { position: fixed; top: 50px; right: 12px; z-index: 900; background: #000; border-radius: 8px; overflow: hidden; border: 2px solid #d1d5db; opacity: 0.85; transition: opacity 0.2s; }
+    .cam-mini:hover { opacity: 1; }
+    .cam-mini video { width: 140px; height: 105px; object-fit: cover; display: block; transform: scaleX(-1); }
+    .cam-mini-label { font-size: 10px; color: #fff; text-align: center; padding: 2px 0 4px; background: rgba(0,0,0,0.6); }
+    .cam-mini.no-face .cam-mini-label { background: #dc2626; }
+  </style>
+</head>
+<body>
+  <!-- Mini camera preview for eye tracking -->
+  <div class="cam-mini" id="camMini" style="display:none;">
+    <video id="camMiniVideo" autoplay playsinline muted></video>
+    <div class="cam-mini-label" id="camMiniLabel">Ensure face is visible</div>
+  </div>
+
+  <div class="trial-page">
+
+    <!-- Top navbar -->
+    <div class="trial-navbar">
+      <div class="trial-navbar-left">
+        <strong><%= isPractice ? 'Practice trial' : trial.title %></strong>
+        <% if (!isPractice) { %>
+          <span class="badge badge-blue">Task <%= trialNumber %> of <%= totalTrials %></span>
+        <% } else { %>
+          <span class="badge badge-amber">Practice</span>
+        <% } %>
+      </div>
+      <div class="trial-navbar-right">
+        <span id="phaseLabel" class="badge badge-green">Step 1: Read data & give initial answer</span>
+        <span id="timer" class="timer green">1:00</span>
+      </div>
+    </div>
+
+    <!-- Phase progress bar -->
+    <div class="phase-bar">
+      <div class="phase-step active" id="phase1">1. Read & answer</div>
+      <div class="phase-step" id="phase2">2. AI consultation</div>
+      <div class="phase-step" id="phase3">3. Final answer</div>
+    </div>
+
+    <!-- Main content -->
+    <div class="trial-body">
+
+      <!-- LEFT: Data panel -->
+      <div class="panel-data">
+        <div class="data-section">
+          <!-- Instruction banner -->
+          <div id="instructionBanner" style="background:#dbeafe; border:1px solid #93c5fd; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:14px; color:#1e40af;">
+            <strong>Step 1:</strong> Read the data below, then <strong>select an option</strong> at the bottom and click submit. After that, the AI will give you its analysis.
+          </div>
+
+          <h3><%= trial.title %></h3>
+          <p class="scenario-text"><%= trial.scenario %></p>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <% trial.real_data.columns.forEach(col => { %>
+                  <th><%= col %></th>
+                <% }); %>
+              </tr>
+            </thead>
+            <tbody>
+              <% trial.real_data.rows.forEach(row => { %>
+                <tr>
+                  <% row.forEach(cell => { %>
+                    <td><%= cell %></td>
+                  <% }); %>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Answer section -->
+        <div class="answer-section" id="answerSection" style="border-top:2px solid #2563eb;">
+          <h3 id="questionLabel" style="color:#1e40af;"><span style="margin-right:6px;">👇</span><%= trial.question %></h3>
+          <p id="answerHint" style="font-size:12px; color:#6b7280; margin-bottom:8px;">Select one option below, then click submit.</p>
+          <div class="option-grid" id="optionGrid">
+            <% trial.options.forEach((opt, i) => { %>
+              <div class="option-btn" data-value="<%= opt %>" onclick="selectOption(this)">
+                <span class="radio"></span>
+                <span><%= opt %></span>
+              </div>
+            <% }); %>
+          </div>
+
+          <!-- Phase 1: Initial submit -->
+          <div id="initialSubmit">
+            <button class="btn btn-primary btn-block btn-submit-answer" id="btnInitialSubmit"
+                    onclick="submitInitialAnswer()" disabled>
+              Submit initial answer & consult AI
+            </button>
+          </div>
+
+          <!-- Phase 3: Final answer + confidence (hidden initially) -->
+          <div id="finalSubmit" style="display:none;">
+            <div class="confidence-row">
+              <label>Confidence:</label>
+              <span class="text-small">0</span>
+              <input type="range" min="0" max="100" value="50" id="confidenceSlider"
+                     oninput="updateConfidence(this.value)">
+              <span class="text-small">100</span>
+              <span class="confidence-value" id="confidenceValue">50</span>
+            </div>
+            <button class="btn btn-primary btn-block btn-submit-answer" id="btnFinalSubmit"
+                    onclick="submitFinalAnswer()">
+              Submit final answer
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: AI Chat panel -->
+      <div class="panel-chat">
+        <div class="chat-header">
+          <span class="dot"></span>
+          AI Assistant
+          <span style="margin-left:auto; font-size:11px; color:#9ca3af;">Powered by LLM</span>
+        </div>
+        <div id="chatMessages" class="chat-messages">
+          <div class="msg-system">Complete Step 1 first, then the AI will share its analysis.</div>
+        </div>
+        <div id="typingIndicator" class="typing-indicator">
+          <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span> AI is thinking...
+        </div>
+        <div class="chat-input-area" id="chatInputArea" style="display:none;">
+          <input type="text" id="chatInput" class="chat-input"
+                 placeholder="Ask the AI a follow-up question..."
+                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}">
+          <button class="btn-send" id="btnSend" onclick="sendMessage()">Send</button>
+        </div>
+        <!-- Proceed button: appears after AI recommendation, user can proceed anytime -->
+        <div id="proceedBar" style="display:none; padding:8px 16px; border-top:1px solid #e5e7eb; background:#f9fafb;">
+          <button class="btn btn-primary btn-block btn-sm" onclick="transitionToPhase3()" id="btnProceed">
+            Proceed to final answer
+          </button>
+          <p style="font-size:11px; color:#9ca3af; text-align:center; margin-top:4px;">
+            You can keep chatting or proceed now. Time remaining: <span id="proceedTimer">1:00</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback overlay (for practice trial) -->
+  <% if (isPractice && feedback) { %>
+  <div class="feedback-overlay" id="feedbackOverlay" style="display:none;">
+    <div class="feedback-card <%= feedback.type %>">
+      <h3><%= feedback.title %></h3>
+      <p><%= feedback.message %></p>
+      <button class="btn btn-primary btn-block" onclick="proceedAfterFeedback()"><%= feedback.buttonText %></button>
+    </div>
+  </div>
+  <% } %>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/behavior-tracker.js"></script>
+  <script src="/js/eye-tracker.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/webgazer@2.1.0/dist/webgazer.min.js"></script>
+  <script>
+    // ========== CONFIG ==========
+    const PID = '<%= pid %>';
+    const TRIAL_ID = '<%= trial.id %>';
+    const IS_PRACTICE = <%= isPractice %>;
+    const CHAT_TIME_LIMIT = <%= chatTimeLimit %>;
+    const TRIAL_CONFIG = <%- JSON.stringify({
+      id: trial.id,
+      scenario: trial.scenario,
+      question: trial.question,
+      options: trial.options,
+      correct_answer: trial.correct_answer,
+      is_hallucination: trial.is_hallucination,
+      real_data: trial.real_data,
+      corrupted_data: trial.corrupted_data
+    }) %>;
+
+    // ========== STATE ==========
+    const socket = io();
+    let sessionId = null;
+    let currentPhase = 1; // 1=initial, 2=AI consultation, 3=final answer
+    let selectedAnswer = null;
+    let initialAnswer = null;
+    let timerInterval = null;
+    let timeRemaining = CHAT_TIME_LIMIT;
+    let trialStartTime = Date.now();
+    let consultationStartTime = null;  // when AI phase begins
+    let consultationEndTime = null;    // when user proceeds to phase 3
+    let chatMessageCount = 0;
+    let aiSuggestion = '';
+
+    // Trackers
+    const behaviorTracker = new BehaviorTracker(socket, PID, TRIAL_ID);
+    const eyeTracker = new EyeTracker(socket, PID);
+
+    // ========== INIT ==========
+    behaviorTracker.init();
+
+    // Always try to show camera preview (independent of eye tracking)
+    (async function initCameraPreview() {
+      try {
+        var stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        var miniVideo = document.getElementById('camMiniVideo');
+        if (miniVideo) {
+          miniVideo.srcObject = stream;
+          document.getElementById('camMini').style.display = 'block';
+        }
+      } catch(e) {
+        console.warn('[Camera] Preview not available:', e.message);
+      }
+    })();
+
+    // Start eye tracking if enabled (separate from camera preview)
+    if (localStorage.getItem('eyeTrackingEnabled') === 'true' && window.webgazer) {
+      (async function initEyeTracking() {
+        try {
+          webgazer.params.showVideoPreview = false;
+          webgazer.params.showFaceOverlay = false;
+          webgazer.params.showFaceFeedbackBox = false;
+          webgazer.params.showGazeDot = false;
+
+          await webgazer
+            .setRegression('ridge')
+            .setGazeListener(function(data, clock) {})
+            .begin();
+
+          // Hide WebGazer's own UI
+          try { webgazer.showVideoPreview(false); } catch(e) {}
+          try { webgazer.showPredictionPoints(false); } catch(e) {}
+          var wgVideo = document.getElementById('webgazerVideoContainer');
+          if (wgVideo) wgVideo.style.display = 'none';
+          var wgDot = document.getElementById('webgazerGazeDot');
+          if (wgDot) wgDot.style.display = 'none';
+
+          // Periodically check face detection
+          setInterval(function() {
+            var camMini = document.getElementById('camMini');
+            var label = document.getElementById('camMiniLabel');
+            if (!camMini || !label) return;
+            var prediction = webgazer.getCurrentPrediction();
+            if (!prediction) {
+              camMini.classList.add('no-face');
+              label.textContent = 'Face not detected!';
+            } else {
+              camMini.classList.remove('no-face');
+              label.textContent = 'Tracking active';
+            }
+          }, 2000);
+
+          eyeTracker.startTracking(TRIAL_ID);
+          console.log('[EyeTracker] Active for trial:', TRIAL_ID);
+        } catch(e) {
+          console.warn('[EyeTracker] Failed to resume:', e.message);
+          // Camera preview still works even if eye tracking fails
+          var label = document.getElementById('camMiniLabel');
+          if (label) label.textContent = 'Ensure face is visible';
+        }
+      })();
+    }
+
+    // Start AI session
+    socket.emit('trial:start', { pid: PID, trialId: TRIAL_ID, isPractice: IS_PRACTICE });
+    socket.on('trial:ready', (data) => { sessionId = data.sessionId; });
+
+    // ========== OPTION SELECTION ==========
+    function selectOption(el) {
+      document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedAnswer = el.dataset.value;
+      document.getElementById('btnInitialSubmit').disabled = false;
+      if (currentPhase === 3) {
+        document.getElementById('btnFinalSubmit').disabled = false;
+      }
+      behaviorTracker.emit('option_select', { value: selectedAnswer, phase: currentPhase });
+    }
+
+    // ========== PHASE 1: INITIAL ANSWER ==========
+    function submitInitialAnswer() {
+      if (!selectedAnswer) return;
+      initialAnswer = selectedAnswer;
+      consultationStartTime = Date.now();
+      behaviorTracker.emit('initial_answer', { answer: initialAnswer });
+
+      // Transition to Phase 2
+      currentPhase = 2;
+      updatePhaseUI();
+
+      // Show chat input
+      document.getElementById('chatInputArea').style.display = 'flex';
+      document.getElementById('initialSubmit').style.display = 'none';
+
+      // Request AI recommendation
+      showTyping();
+      socket.emit('trial:get-recommendation', {
+        pid: PID,
+        sessionId,
+        trialId: TRIAL_ID,
+        trialConfig: TRIAL_CONFIG
+      });
+
+      // Start timer for AI consultation phase
+      startTimer();
+    }
+
+    // ========== PHASE 2: AI CONSULTATION ==========
+    socket.on('trial:ai-recommendation', ({ reply }) => {
+      hideTyping();
+      addMessage(reply, false);
+      aiSuggestion = reply;
+      chatMessageCount++;
+      // Show proceed button immediately — user can proceed or keep chatting
+      document.getElementById('proceedBar').style.display = 'block';
+    });
+
+    socket.on('trial:ai-response', ({ reply }) => {
+      hideTyping();
+      addMessage(reply, false);
+      chatMessageCount++;
+    });
+
+    function sendMessage() {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      if (!msg || !sessionId || currentPhase !== 2) return;
+
+      addMessage(msg, true);
+      showTyping();
+      behaviorTracker.trackChatSend(msg);
+      chatMessageCount++;
+
+      socket.emit('trial:send-message', {
+        pid: PID,
+        sessionId,
+        trialId: TRIAL_ID,
+        message: msg,
+        trialConfig: TRIAL_CONFIG
+      });
+
+      input.value = '';
+    }
+
+    function transitionToPhase3() {
+      if (currentPhase === 3) return; // prevent double-trigger
+      consultationEndTime = Date.now();
+      currentPhase = 3;
+      updatePhaseUI();
+
+      // Hide proceed bar, disable chat
+      document.getElementById('proceedBar').style.display = 'none';
+      document.getElementById('chatInput').disabled = true;
+      document.getElementById('btnSend').disabled = true;
+      addSystemMessage('AI consultation ended. Please submit your final answer below.');
+
+      // Show final answer UI
+      document.getElementById('finalSubmit').style.display = 'block';
+      document.getElementById('questionLabel').innerHTML = '<span style="margin-right:6px;">👇</span>Final answer: ' + TRIAL_CONFIG.question;
+      document.getElementById('answerHint').textContent = 'You may change your selection or keep it. Set your confidence, then submit.';
+      document.getElementById('answerSection').style.borderTopColor = '#16a34a';
+
+      // Keep current selection but allow change
+      if (selectedAnswer) {
+        document.getElementById('btnFinalSubmit').disabled = false;
+      }
+    }
+
+    // ========== PHASE 3: FINAL ANSWER ==========
+    function updateConfidence(val) {
+      document.getElementById('confidenceValue').textContent = val;
+      behaviorTracker.trackConfidenceChange(parseInt(val));
+    }
+
+    function submitFinalAnswer() {
+      if (!selectedAnswer) return;
+
+      const confidence = parseInt(document.getElementById('confidenceSlider').value);
+      const isCorrect = selectedAnswer === TRIAL_CONFIG.correct_answer;
+      const initialCorrect = initialAnswer === TRIAL_CONFIG.correct_answer;
+
+      // Stop trackers
+      eyeTracker.stopTracking();
+      if (timerInterval) clearInterval(timerInterval);
+
+      // Save response
+      const consultDuration = (consultationEndTime || Date.now()) - (consultationStartTime || Date.now());
+      const responseData = {
+        trial_id: TRIAL_ID,
+        trial_number: <%= trialNumber %>,
+        is_hallucination_trial: TRIAL_CONFIG.is_hallucination,
+        initial_answer: initialAnswer,
+        ai_suggestion: aiSuggestion,
+        final_answer: selectedAnswer,
+        confidence,
+        is_correct: isCorrect,
+        initial_correct: initialCorrect,
+        response_time_ms: Date.now() - trialStartTime,
+        consultation_duration_ms: consultDuration,
+        chat_message_count: chatMessageCount
+      };
+
+      socket.emit('trial:save-response', { pid: PID, responseData });
+      socket.emit('trial:end-session', { sessionId });
+
+      behaviorTracker.emit('trial_complete', {
+        ...responseData,
+        behavior_summary: behaviorTracker.getSummary()
+      });
+
+      <% if (isPractice) { %>
+        // Show feedback overlay for practice
+        document.getElementById('feedbackOverlay').style.display = 'flex';
+      <% } else { %>
+        // Advance to next trial
+        socket.emit('trial:advance', { pid: PID, isPractice: false });
+      <% } %>
+    }
+
+    <% if (isPractice) { %>
+    function proceedAfterFeedback() {
+      socket.emit('trial:advance', { pid: PID, isPractice: true });
+    }
+    <% } %>
+
+    socket.on('trial:next', ({ url }) => {
+      // Stop mini camera preview
+      var miniVideo = document.getElementById('camMiniVideo');
+      if (miniVideo && miniVideo.srcObject) {
+        miniVideo.srcObject.getTracks().forEach(function(t) { t.stop(); });
+      }
+      // Pause WebGazer before navigation
+      if (window.webgazer) {
+        try { webgazer.pause(); } catch(e) {}
+      }
+      window.location.href = url;
+    });
+
+    // ========== TIMER ==========
+    function startTimer() {
+      const timerEl = document.getElementById('timer');
+      const proceedTimerEl = document.getElementById('proceedTimer');
+      timerInterval = setInterval(() => {
+        timeRemaining--;
+        const min = Math.floor(timeRemaining / 60);
+        const sec = timeRemaining % 60;
+        const timeStr = `${min}:${sec.toString().padStart(2, '0')}`;
+        timerEl.textContent = timeStr;
+        if (proceedTimerEl) proceedTimerEl.textContent = timeStr;
+        if (timeRemaining <= 15) {
+          timerEl.className = 'timer red';
+        }
+        if (timeRemaining <= 0) {
+          clearInterval(timerInterval);
+          if (currentPhase === 2) transitionToPhase3();
+        }
+      }, 1000);
+    }
+
+    // ========== CHAT UI ==========
+    function addMessage(text, isUser) {
+      const container = document.getElementById('chatMessages');
+      const div = document.createElement('div');
+      div.className = 'msg-bubble ' + (isUser ? 'msg-user' : 'msg-ai');
+      div.textContent = text;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function addSystemMessage(text) {
+      const container = document.getElementById('chatMessages');
+      const div = document.createElement('div');
+      div.className = 'msg-system';
+      div.textContent = text;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function showTyping() { document.getElementById('typingIndicator').classList.add('visible'); }
+    function hideTyping() { document.getElementById('typingIndicator').classList.remove('visible'); }
+
+    // ========== PHASE UI ==========
+    function updatePhaseUI() {
+      const phases = ['phase1', 'phase2', 'phase3'];
+      const labels = [
+        'Step 1: Read data & give initial answer',
+        'Step 2: AI consultation',
+        'Step 3: Final answer + confidence'
+      ];
+
+      phases.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (i + 1 < currentPhase) el.className = 'phase-step completed';
+        else if (i + 1 === currentPhase) el.className = 'phase-step active';
+        else el.className = 'phase-step';
+      });
+
+      document.getElementById('phaseLabel').textContent = labels[currentPhase - 1];
+
+      // Update instruction banner
+      const banner = document.getElementById('instructionBanner');
+      if (currentPhase === 2) {
+        banner.style.background = '#fef3c7';
+        banner.style.borderColor = '#fcd34d';
+        banner.style.color = '#92400e';
+        banner.innerHTML = '<strong>Step 2:</strong> The AI has shared its analysis in the chat panel (right side). You can <strong>ask follow-up questions</strong> or challenge the AI. Time is limited.';
+      } else if (currentPhase === 3) {
+        banner.style.background = '#dcfce7';
+        banner.style.borderColor = '#86efac';
+        banner.style.color = '#166534';
+        banner.innerHTML = '<strong>Step 3:</strong> You may <strong>change your answer</strong> if you want, set your <strong>confidence level</strong>, then click submit.';
+      }
+    }
+  </script>
+</body>
+</html>
