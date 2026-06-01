@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Current State</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card">
+      <div class="progress-bar"><% for(let i=1;i<=totalPhases;i++){%><div class="step <%=i<phase?'done':i===phase?'active':''%>"></div><%}%></div>
+      <h1>How Are You Feeling Right Now?</h1>
+      <p class="subtitle">Please rate how well each statement describes how you feel <strong>right now</strong>.</p>
+      <div class="progress-text" id="progress">0 / 10 answered</div>
+      <div id="scaleItems"></div>
+      <button class="btn btn-primary btn-full mt-24" id="submitBtn" disabled onclick="submitScales()">Continue</button>
+      <div class="error" id="errorMsg" style="display:none;margin-top:8px;"></div>
+    </div>
+  </div>
+  <script>
+    var pid = '<%= pid %>';
+    var items = <%- items %>;
+    var answers = {};
+
+    function render() {
+      var html = '';
+      items.forEach(function(item, idx) {
+        html += '<div class="scale-item" id="item_'+item.id+'">';
+        html += '<div class="item-text">'+(idx+1)+'. '+item.text+'</div>';
+        html += '<div class="likert-row">';
+        for(var v=1;v<=7;v++){
+          html += '<label><input type="radio" name="'+item.id+'" value="'+v+'" onchange="onAnswer(\''+item.id+'\','+v+')"><div class="likert-dot">'+v+'</div></label>';
+        }
+        html += '</div>';
+        html += '<div class="likert-labels"><span>Not at all true</span><span>Completely true</span></div>';
+        html += '</div>';
+      });
+      document.getElementById('scaleItems').innerHTML = html;
+    }
+
+    function onAnswer(id, val) {
+      answers[id] = val;
+      var count = Object.keys(answers).length;
+      document.getElementById('progress').textContent = count + ' / ' + items.length + ' answered';
+      document.getElementById('submitBtn').disabled = (count < items.length);
+    }
+
+    function submitScales() {
+      if(Object.keys(answers).length < items.length) {
+        document.getElementById('errorMsg').textContent = 'Please answer all items.';
+        document.getElementById('errorMsg').style.display = 'block'; return;
+      }
+      var responses = items.map(function(item){
+        return { id: item.id, text: item.text, scale: item.scale, value: answers[item.id] };
+      });
+      fetch('/api/scales',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:pid,responses:responses})})
+      .then(function(r){return r.json();}).then(function(d){if(d.next)window.location.href=d.next;});
+    }
+
+    render();
+  </script>
+</body>
+</html>
